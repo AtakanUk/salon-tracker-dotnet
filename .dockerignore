@@ -1,0 +1,16 @@
+# Keep the build context small; local build output and packages never go into the image
+**/bin
+**/obj
+**/node_modules
+frontend/web/dist
+frontend/web/dev-dist
+
+.git
+.github
+tests
+docs
+
+# runtime data and secrets
+backups
+.env
+*.log

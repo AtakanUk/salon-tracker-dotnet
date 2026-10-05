@@ -1,0 +1,54 @@
+# Private by default: no port is open to the internet. The app only listens on
+# 127.0.0.1:3001; Tailscale provides access from outside (see docs/deployment.md).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "7"
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      POSTGRES_USER: friseur
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is missing from .env}
+      POSTGRES_DB: friseur
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./backups:/backups:ro # restore: pg_restore /backups/<file>.dump
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U friseur -d friseur"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - ./backups:/backups
+    environment:
+      DATABASE_URL: postgresql://friseur:${DB_PASSWORD}@db:5432/friseur
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is missing from .env}
+      SALON_TZ: ${SALON_TZ:-Europe/Berlin}
+      # log timestamps in salon time too (date logic uses SALON_TZ on its own)
+      TZ: ${SALON_TZ:-Europe/Berlin}
+      PORT: "3001"
+      BACKUP_DIR: /backups
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      ALERT_TO: ${ALERT_TO:-}
+
+volumes:
+  db-data:

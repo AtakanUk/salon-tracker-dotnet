@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SalonTracker.Api/SalonTracker.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SalonTracker.Api.Tests/SalonTracker.Api.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,8 @@
+# Written on Windows, run on a Linux server. Shell scripts and container files
+# with CRLF line endings fail there with "bad interpreter" -> always LF.
+* text=auto
+
+*.sh text eol=lf
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+*.yml text eol=lf

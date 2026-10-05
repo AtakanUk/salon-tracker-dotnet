@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (warnings are errors)
+        run: dotnet build --no-restore -c Release
+
+      # no TEST_DATABASE_URL here: the tests start their own PostgreSQL 17 with Testcontainers
+      - name: Test
+        run: dotnet test --no-build -c Release
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (with the frontend submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Build the image and start the stack
+        run: |
+          cp .env.example .env
+          sed -i "s/^DB_PASSWORD=.*/DB_PASSWORD=$(openssl rand -hex 16)/; s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
+          docker compose up -d --build
+
+      - name: Wait until the app answers
+        run: |
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:3001/api/health && exit 0
+            sleep 2
+          done
+          exit 1
+
+      - name: Seed, sign in and use the API like the web app does
+        run: |
+          password=$(docker compose exec -T app dotnet SalonTracker.Api.dll seed --demo | awk '$1 == "admin" { print $2 }')
+          test -n "$password"
+          # the session cookie is Secure in production, so curl would not send it back over http
+          token=$(curl -fsS -D - -o /dev/null -H 'Content-Type: application/json' \
+            -d "{\"username\":\"admin\",\"password\":\"$password\"}" http://127.0.0.1:3001/api/auth/login \
+            | grep -i '^set-cookie: token=' | sed -E 's/^[Ss]et-[Cc]ookie: (token=[^;]+).*/\1/')
+          test -n "$token"
+          curl -fsS -H "Cookie: $token" "http://127.0.0.1:3001/api/stats/overview?from=2020-01-01&to=2030-12-31" | grep -q '"sessionCount"'
+          curl -fsS http://127.0.0.1:3001/admin | grep -q 'id="root"'
+
+      - name: Take a backup with pg_dump
+        run: |
+          docker compose exec -T app dotnet SalonTracker.Api.dll backup
+          ls -l backups
+          ls backups/friseur-*.dump backups/friseur-*.xlsx backups/friseur-*.json.gz
+
+      - name: Logs
+        if: always()
+        run: docker compose logs --no-color

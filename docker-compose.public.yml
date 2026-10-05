@@ -1,0 +1,42 @@
+# Public publish mode. Does NOT work on its own; it is layered on top of
+# docker-compose.yml. To switch it on, add this line to .env (see .env.example):
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.public.yml
+#
+# That way every existing command ("friseur update", "docker compose ps", ...)
+# keeps working unchanged. Removing the line goes back to private mode.
+#
+# The app service is untouched: the 127.0.0.1:3001 mapping stays (the watchdog
+# checks it there) and Caddy reaches the app over the Docker network. Without
+# this file the system runs exactly the same.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "7"
+    depends_on:
+      - app
+    # PUBLIC_BIND_IP: if Tailscale is installed on the server too, "tailscale serve"
+    # holds 443 on its own IP and binding 0.0.0.0 fails with "address already in use".
+    # With the server's public IP set, both run side by side (docs/deployment.md).
+    ports:
+      - "${PUBLIC_BIND_IP:-0.0.0.0}:80:80" # Let's Encrypt challenge + redirect to HTTPS
+      - "${PUBLIC_BIND_IP:-0.0.0.0}:443:443"
+    volumes:
+      - ./ops/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data # certificates: lose them and you run into Let's Encrypt rate limits
+      - caddy-config:/config
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?PUBLIC_DOMAIN is missing from .env}
+      BASIC_AUTH_USER: ${BASIC_AUTH_USER:?BASIC_AUTH_USER is missing from .env}
+      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?BASIC_AUTH_HASH is missing from .env}
+      # value of the "this device passed the gate" cookie; changing it signs ALL devices out
+      GATE_COOKIE: ${GATE_COOKIE:?GATE_COOKIE is missing from .env}
+
+volumes:
+  caddy-data:
+  caddy-config:

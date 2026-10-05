@@ -1,0 +1,34 @@
+# Only used in the public publish mode (docker-compose.public.yml).
+# In private mode this file is never read; Tailscale provides HTTPS there.
+#
+# Security headers (HSTS, CSP, nosniff...) are NOT set here but inside the app
+# (server/src/app.ts, @fastify/helmet), so they apply in both publish modes.
+
+{$PUBLIC_DOMAIN} {
+	encode gzip zstd
+
+	# Has this device been through the gate before? The cookie does what basic
+	# auth cannot: it survives closing the browser, so the gate asks ONCE per device.
+	# Without the anchors ((^|;\s*) and (;|$)) a made-up cookie such as
+	# "xfriseur_gate=..." would match and walk past the gate.
+	@passed header_regexp Cookie "(^|;\s*)friseur_gate={$GATE_COOKIE}(;|$)"
+
+	handle @passed {
+		reverse_proxy app:3001
+	}
+
+	# Not passed yet: ask for the shared password, then leave a 2-year cookie.
+	handle {
+		# route is REQUIRED: Caddy normally applies its own fixed directive order,
+		# and "header" runs before "basic_auth". The 401 response would then carry
+		# the Set-Cookie too, and the gate would be wide open (get a 401, keep the
+		# cookie, walk in on the second request). route keeps the written order.
+		route {
+			basic_auth {
+				{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+			}
+			header +Set-Cookie "friseur_gate={$GATE_COOKIE}; Max-Age=63072000; Path=/; Secure; HttpOnly; SameSite=Lax"
+			reverse_proxy app:3001
+		}
+	}
+}
