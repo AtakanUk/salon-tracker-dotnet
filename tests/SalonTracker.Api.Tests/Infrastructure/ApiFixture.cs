@@ -33,33 +33,35 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        var connectionString = await ConnectionStringAsync();
-
-        // start from nothing; the app applies its migrations when it boots
-        await using (var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connectionString).UseSnakeCaseNamingConvention().Options))
-        {
-            await db.Database.EnsureDeletedAsync();
-        }
+        // the app applies its migrations when it boots
+        var connectionString = await ExistingDatabaseAsync() ?? await ContainerDatabaseAsync();
 
         Directory.CreateDirectory(BackupDir);
         Factory = new SalonApiFactory(connectionString, BackupDir, Clock);
         _ = Factory.Server;
     }
 
-    private async Task<string> ConnectionStringAsync()
+    /// <summary><c>TEST_DATABASE_URL</c>, dropped first so every run starts from nothing.</summary>
+    private static async Task<string?> ExistingDatabaseAsync()
     {
-        if (Environment.GetEnvironmentVariable("TEST_DATABASE_URL") is { Length: > 0 } url)
+        if (Environment.GetEnvironmentVariable("TEST_DATABASE_URL") is not { Length: > 0 } url) return null;
+
+        var builder = AppSettings.ToConnectionString(url);
+        if (builder.Database is not { } name || !name.EndsWith("_test", StringComparison.Ordinal))
         {
-            var builder = AppSettings.ToConnectionString(url);
-            if (builder.Database is not { } name || !name.EndsWith("_test", StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException($"Refusing to run tests against \"{builder.Database}\": the name must end in _test");
-            }
-            return builder.ConnectionString;
+            throw new InvalidOperationException($"Refusing to run tests against \"{builder.Database}\": the name must end in _test");
         }
 
-        _container = new PostgreSqlBuilder("postgres:17-alpine").Build();
+        await using var db = new AppDbContext(new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(builder.ConnectionString).UseSnakeCaseNamingConvention().Options);
+        await db.Database.EnsureDeletedAsync();
+        return builder.ConnectionString;
+    }
+
+    /// <summary>A throwaway PostgreSQL 17; it starts empty, so there is nothing to drop.</summary>
+    private async Task<string> ContainerDatabaseAsync()
+    {
+        _container = new PostgreSqlBuilder("postgres:17-alpine").WithDatabase("salon_tracker_test").Build();
         await _container.StartAsync();
         return _container.GetConnectionString();
     }
