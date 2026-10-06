@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using SalonTracker.Api.Configuration;
 using SalonTracker.Api.Data;
+using SalonTracker.Api.Infrastructure;
 using Testcontainers.PostgreSql;
 
 namespace SalonTracker.Api.Tests.Infrastructure;
@@ -66,10 +67,10 @@ public sealed class ApiFixture : IAsyncLifetime
         return _container.GetConnectionString();
     }
 
-    /// <summary>Every test starts with empty tables and the real clock.</summary>
+    /// <summary>Every test starts with empty tables at noon, salon time.</summary>
     public async Task ResetAsync()
     {
-        Clock.Offset = TimeSpan.Zero;
+        Clock.SetToNoon();
         foreach (var file in Directory.EnumerateFiles(BackupDir)) File.Delete(file);
 
         await using var scope = Factory.Services.CreateAsyncScope();
@@ -103,10 +104,30 @@ public sealed class ApiFixture : IAsyncLifetime
     }
 }
 
-/// <summary>The real clock, shifted by <see cref="Offset"/> - "31 minutes later" without waiting.</summary>
+/// <summary>
+/// The real clock, shifted. Every test starts at noon in the salon, so "a few minutes later"
+/// never crosses midnight - otherwise a test that runs at 23:55 sees two different days.
+/// </summary>
 public sealed class TestClock : TimeProvider
 {
-    public TimeSpan Offset { get; set; }
+    private static readonly TimeZoneInfo Salon = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
 
-    public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + Offset;
+    private TimeSpan _offset;
+
+    public override DateTimeOffset GetUtcNow() => base.GetUtcNow() + _offset;
+
+    /// <summary>Noon today, salon time.</summary>
+    public void SetToNoon()
+    {
+        var now = base.GetUtcNow();
+        var today = SalonTime.DayOf(now.UtcDateTime, Salon);
+        var noon = SalonTime.StartOfDay(today, Salon).AddHours(12);
+        _offset = new DateTimeOffset(noon, TimeSpan.Zero) - now;
+    }
+
+    /// <summary>For tests that compare against file timestamps, which follow the real clock.</summary>
+    public void UseRealTime() => _offset = TimeSpan.Zero;
+
+    /// <summary>"31 minutes later" without waiting.</summary>
+    public void Advance(TimeSpan by) => _offset += by;
 }

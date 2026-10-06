@@ -46,7 +46,7 @@ public sealed class SessionTests(ApiFixture fixture) : ApiTest(fixture)
     public async Task The_start_time_comes_from_the_server_not_the_tablet()
     {
         var ali = await CreateUser();
-        var before = DateTime.UtcNow.AddSeconds(-1);
+        var before = Fixture.Clock.GetUtcNow().UtcDateTime.AddSeconds(-1);
 
         var response = await Post("/api/sessions/start", ali.Cookie, new { startedAt = "2020-01-01T00:00:00Z" });
 
@@ -170,7 +170,7 @@ public sealed class SessionTests(ApiFixture fixture) : ApiTest(fixture)
         var haircut = await CreateService();
         var id = (await RecordSession(ali.Cookie, Item(haircut.Id))).GetProperty("id").GetInt32();
 
-        Fixture.Clock.Offset = TimeSpan.FromMinutes(31);
+        Fixture.Clock.Advance(TimeSpan.FromMinutes(31));
         var items = new { items = new[] { Item(haircut.Id, quantity: 2) } };
 
         var late = await Patch($"/api/sessions/{id}/items", ali.Cookie, items);
@@ -217,7 +217,7 @@ public sealed class SessionTests(ApiFixture fixture) : ApiTest(fixture)
         var ali = await CreateUser();
         var haircut = await CreateService(priceCents: 2000);
         await RecordSession(ali.Cookie, Item(haircut.Id));
-        Fixture.Clock.Offset = TimeSpan.FromMinutes(5);
+        Fixture.Clock.Advance(TimeSpan.FromMinutes(5));
         var second = await RecordSession(ali.Cookie, Item(haircut.Id, quantity: 2));
         await Post("/api/sessions/start", ali.Cookie);
 

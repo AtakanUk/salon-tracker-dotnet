@@ -125,6 +125,8 @@ public sealed class BackupTests(ApiFixture fixture) : ApiTest(fixture)
     [Fact]
     public async Task Cleanup_refuses_to_delete_without_a_fresh_backup_and_works_after_one()
     {
+        // "fresh" compares the clock with the backup files' timestamps, which are real
+        Fixture.Clock.UseRealTime();
         var owner = await CreateUser(role: Role.Admin);
         var ali = await CreateUser();
         var haircut = await CreateService();
